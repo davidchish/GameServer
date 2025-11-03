@@ -5,6 +5,7 @@ using System.Text.Json;
 using Serilog;
 using GameShared;
 using GameServer.Messaging;
+using GameServer.Domain;
 
 namespace GameServer.WebSocketing;
 
@@ -12,14 +13,18 @@ public sealed class WebSocketServer
 {
     private readonly HttpListener _listener;
     private readonly string _wsPath;
+    private readonly PlayerManager _players;
+    private readonly SessionManager _sessions;
 
-    public WebSocketServer(string wsUrl)
+    public WebSocketServer(string wsUrl, PlayerManager players, SessionManager sessions)
     {
         var uri = new Uri(wsUrl);
         _wsPath = uri.AbsolutePath.TrimEnd('/');
         _listener = new HttpListener();
         var prefix = $"{uri.Scheme}://localhost:{uri.Port}/";
         _listener.Prefixes.Add(prefix);
+        _players = players;
+        _sessions = sessions;
     }
 
     public async Task StartAsync(MessageRouter router, CancellationToken ct = default)
@@ -62,11 +67,13 @@ public sealed class WebSocketServer
         }
 
         WebSocket? ws = null;
+        Session? session = null;
         try
         {
             var wsCtx = await context.AcceptWebSocketAsync(null);
             ws = wsCtx.WebSocket;
-            var session = new Session(ws);
+            session = new Session(ws);
+            _sessions.Register(session);
             Log.Information("Client connected: {SessionId}", session.SessionId);
             await ReceiveLoopAsync(session, router, ct);
         }
@@ -75,7 +82,15 @@ public sealed class WebSocketServer
             Log.Error(ex, "HandleContext error");
             if (ws is not null)
             {
-                try { await ws.CloseAsync(WebSocketCloseStatus.InternalServerError, "error", CancellationToken.None); } catch {}
+                try { await ws.CloseAsync(WebSocketCloseStatus.InternalServerError, "error", CancellationToken.None); } catch { }
+            }
+        }
+        finally
+        {
+            if (session is not null)
+            {
+                _sessions.Unregister(session.SessionId);
+                await _players.LogoutAsync(session.SessionId, session.PlayerId);
             }
         }
     }

@@ -1,3 +1,4 @@
+using System;
 using System.Text.Json;
 using GameShared;
 using GameServer.WebSocketing;
@@ -9,7 +10,13 @@ public sealed class SendGiftHandler : IMessageHandler
 {
     private readonly PlayerManager _players;
     public string Type => MessageTypes.SendGift;
-    public SendGiftHandler(PlayerManager players) => _players = players;
+
+    private readonly SessionManager _sessions;
+    public SendGiftHandler(PlayerManager players, SessionManager sessions)
+    {
+        _players = players;
+        _sessions = sessions;
+    }
 
     public async Task HandleAsync(Session session, string payloadJson, CancellationToken ct)
     {
@@ -47,8 +54,14 @@ public sealed class SendGiftHandler : IMessageHandler
         }
         var (_, friendNew) = await _players.UpdateResourceAsync(req.FriendPlayerId, req.ResourceType, req.ResourceValue, ct);
 
-        // In a real server, we would look up the friend's Session and send the event.
-        // For this portfolio version, we just ACK to the sender.
+
+        var friendSessionId = await _players.GetOnlineSessionIdAsync(req.FriendPlayerId);
+        if (friendSessionId is Guid fid && _sessions.TryGetSession(fid, out var friendSession) && friendSession is not null)
+        {
+            var giftEvent = new GiftEvent(session.PlayerId.Value, req.ResourceType, req.ResourceValue, DateTime.UtcNow);
+            await WebSocketServer.SendAsync(friendSession, new Envelope("GiftEvent", giftEvent), ct);
+        }
+
         await WebSocketServer.SendAsync(session, new Envelope("SendGiftResponse", new { Status = "OK", FriendNewBalance = friendNew }), ct);
     }
 }

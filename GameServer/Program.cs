@@ -22,6 +22,7 @@ try
 
     // Domain
     services.AddSingleton<PlayerManager>();
+    services.AddSingleton<SessionManager>();
 
     // Handlers
     services.AddSingleton<IMessageHandler, LoginHandler>();
@@ -30,7 +31,10 @@ try
 
     // Router & server
     services.AddSingleton<MessageRouter>();
-    services.AddSingleton<WebSocketServer>(_ => new WebSocketServer("http://localhost:8080/ws/"));
+    services.AddSingleton<WebSocketServer>(sp => new WebSocketServer(
+        "http://localhost:8080/ws/",
+        sp.GetRequiredService<PlayerManager>(),
+        sp.GetRequiredService<SessionManager>()));
 
     var provider = services.BuildServiceProvider();
 

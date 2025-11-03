@@ -28,11 +28,20 @@ public sealed class PlayerManager
         Log.Information("Player {PlayerId} logged in (device {DeviceId})", state.PlayerId, deviceId);
         return Task.FromResult<(bool, string?, PlayerState?)>((true, null, state));
     }
-
+        
     public Task LogoutAsync(Guid sessionId, Guid? playerId)
     {
         if (playerId.HasValue)
-            _online.TryRemove(playerId.Value, out _);
+        {
+            var pid = playerId.Value;
+            if (_online.TryGetValue(pid, out var trackedSession) && trackedSession == sessionId)
+            {
+                _online.TryRemove(pid, out _);
+                _locks.TryRemove(pid, out _);
+                Log.Information("Player {PlayerId} logged out (session {SessionId})", pid, sessionId);
+            }
+        }
+
         return Task.CompletedTask;
     }
 
@@ -41,6 +50,13 @@ public sealed class PlayerManager
         if (_deviceByPlayer.TryGetValue(playerId, out var did) && _byDevice.TryGetValue(did, out var s))
             return Task.FromResult<PlayerState?>(s);
         return Task.FromResult<PlayerState?>(null);
+    }
+
+    public Task<Guid?> GetOnlineSessionIdAsync(Guid playerId)
+    {
+        if (_online.TryGetValue(playerId, out var sessionId))
+            return Task.FromResult<Guid?>(sessionId);
+        return Task.FromResult<Guid?>(null);
     }
 
     public Task<bool> IsOnlineAsync(Guid playerId) => Task.FromResult(_online.ContainsKey(playerId));
